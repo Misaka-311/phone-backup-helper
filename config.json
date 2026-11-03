@@ -1,0 +1,42 @@
+{
+  "phone": {
+    "transport": "adb",
+    "sources": [
+      { "id": "camera", "remote": "/sdcard/DCIM/Camera", "targetSubdir": "Camera", "enabled": true },
+      { "id": "screenshots", "remote": "/sdcard/Pictures/Screenshots", "targetSubdir": "Screenshots", "enabled": true },
+      { "id": "weixin", "remote": "/sdcard/Pictures/WeiXin", "targetSubdir": "WeiXin", "enabled": true }
+    ],
+    "includeExt": [".jpg", ".jpeg", ".jfif", ".heic", ".heif", ".png", ".webp", ".dng", ".mp4", ".mov"],
+    "minSizeBytes": 1024,
+    "maxDepth": 3
+  },
+  "local": {
+    "root": "F:\\heic格式照片",
+    "collision": "skip",
+    "verifyHash": false,
+    "keepPhoneMtime": true
+  },
+  "filter": {
+    "since": null,
+    "until": null,
+    "excludeUncertain": false
+  },
+  "run": {
+    "target": "both"
+  },
+  "cloud": {
+    "mode": "handoff",
+    "handoff": { "watchDirs": ["Camera", "Screenshots", "WeiXin"] },
+    "mount": { "driveLetter": null, "remoteRoot": "\\手机备份" },
+    "open123": {
+      "enabled": false,
+      "baseURL": "https://open-api.123pan.com",
+      "clientId": "",
+      "clientSecretEnv": "PAN123_CLIENT_SECRET",
+      "remoteRoot": "/手机备份/F-heic格式照片",
+      "concurrency": 3,
+      "duplicate": 1,
+      "verify": true
+    }
+  }
+}

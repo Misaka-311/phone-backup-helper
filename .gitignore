@@ -1,0 +1,19 @@
+# 运行时产生的个人数据
+state/
+logs/
+reports/
+config.local.json
+_test_out/
+
+# 打包产物
+*.exe
+*.zip
+_pkg/
+_unzip/
+_build/
+
+# 系统垃圾
+Thumbs.db
+desktop.ini
+.DS_Store
+node_modules/

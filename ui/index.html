@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>手机备份助手</title>
+<link rel="icon" href="/ui/icon.png">
+<link rel="stylesheet" href="/ui/style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <span class="logo">🗂️</span>
+    <div>
+      <h1>手机备份助手</h1>
+      <p class="sub">任意来源 → 任意目标：先对比，再挑要导的，最后一次性执行</p>
+    </div>
+  </div>
+  <div class="phone" id="phoneBadge">检测中…</div>
+  <button id="btnReconnect" class="ghost" style="margin-left:10px">重新连接</button>
+  <button id="btnQuit" class="ghost" style="margin-left:6px" title="停止后台服务，下次点桌面图标再启动">退出</button>
+</header>
+
+<main>
+
+  <!-- 0 数据来源 -->
+  <section class="card">
+    <h2><span class="no">1</span>数据来源（从哪儿拿）</h2>
+    <div class="seg" id="sourceSeg">
+      <button class="segBtn active" data-kind="phone">📱 手机（USB）</button>
+      <button class="segBtn" data-kind="folder">💽 某块硬盘/文件夹</button>
+    </div>
+
+    <div class="row hidden" id="sourceFolderRow">
+      <label>盘</label>
+      <select id="srcDriveSel"></select>
+      <label>文件夹</label>
+      <input id="srcRoot" placeholder="例如 G:\手机备份\DCIM 1 或 D:\旧手机">
+      <button id="btnChooseSource" class="ghost">用这个文件夹</button>
+    </div>
+
+    <div class="row">
+      <span class="hint" id="sourceHint">当前来源：手机</span>
+    </div>
+  </section>
+
+  <!-- 2 目标 -->
+  <section class="card">
+    <h2><span class="no">2</span>导到哪儿（目标）</h2>
+    <div class="row">
+      <label>盘</label>
+      <select id="driveSel"></select>
+      <span class="hint" id="driveInfo"></span>
+    </div>
+    <div class="row">
+      <label>目标路径</label>
+      <input id="rootInput" placeholder="例如 F:\heic格式照片 或 G:\手机备份">
+      <button id="btnListRoot" class="ghost">看这里有哪些文件夹</button>
+    </div>
+    <div class="chips" id="rootChips"></div>
+    <div class="row small">
+      <label>新建文件夹</label>
+      <input id="newFolderName" placeholder="例如 手机照片2026">
+      <button id="btnNewFolder" class="ghost">新建</button>
+    </div>
+  </section>
+
+  <!-- 3 文件夹对应 -->
+  <section class="card">
+    <h2><span class="no">3</span>分栏对应（大文件夹 → 小文件夹，逐个选）</h2>
+    <div class="row">
+      <button id="btnListSource" class="ghost">扫描来源里有哪些文件夹</button>
+      <button id="btnAutoMap" class="ghost" disabled>按内容自动勾选</button>
+      <button id="btnPickAll" class="ghost" disabled>全部按结构勾选</button>
+      <button id="btnPickNone" class="ghost" disabled>全部取消</button>
+      <span class="hint" id="mapHint">先扫描来源，再看每一栏里的小文件夹要对应到目标哪儿</span>
+    </div>
+    <div class="legend">
+      <span><b>✔ 已有</b>：目标里已经有这个文件夹（只看文件夹名字）</span>
+      <span><b>内容重合 N%</b>：两边文件名相同的比例（不看文件夹名字，看里面装的文件对不对得上）</span>
+      <span><b>同名文件</b>：真正复制时自动跳过，不会重复导</span>
+    </div>
+    <div id="tree" class="tree"></div>
+  </section>
+
+  <!-- 4 对比 + 勾选 -->
+  <section class="card">
+    <h2><span class="no">4</span>对比结果与勾选</h2>
+    <div class="row">
+      <label>拍摄日期</label>
+      <input type="date" id="since">
+      <span class="dash">到</span>
+      <input type="date" id="until">
+      <button id="btnScanNew" class="primary">开始对比</button>
+      <span class="hint" id="scanHint"></span>
+    </div>
+    <div class="row">
+      <label>文件类型</label>
+      <div class="extCats" id="extCats">
+        <button class="chip cat active" data-cat="photo">照片</button>
+        <button class="chip cat active" data-cat="video">视频</button>
+        <button class="chip cat" data-cat="doc">文档</button>
+        <button class="chip cat" data-cat="archive">压缩包</button>
+        <button class="chip cat" data-cat="all">全部文件</button>
+      </div>
+      <span class="hint" id="extHint">可以多选；选「全部文件」表示不按扩展名筛</span>
+    </div>
+
+    <div id="compareBox" class="hidden">
+      <table class="cmp">
+        <thead><tr><th>来源文件夹</th><th>对应到</th><th class="num">来源</th><th class="num">目标已有</th><th class="num">新增</th><th class="num">新增体积</th></tr></thead>
+        <tbody id="cmpBody"></tbody>
+      </table>
+    </div>
+
+    <div id="scanSummary" class="summary hidden"></div>
+    <div id="groups"></div>
+  </section>
+
+  <!-- 5 执行 -->
+  <section class="card">
+    <h2><span class="no">5</span>一次性执行</h2>
+    <div class="row">
+      <label>导到</label>
+      <select id="targetSel">
+        <option value="disk">只导硬盘</option>
+        <option value="both">硬盘 + 123 云盘</option>
+        <option value="cloud">只传 123 云盘</option>
+      </select>
+      <span id="selCount" class="hint">已选 0 个</span>
+      <button id="btnImport" class="primary" disabled>开始执行</button>
+    </div>
+    <div class="progress hidden" id="importProgress">
+      <div class="bar"><i></i></div><span class="pct"></span>
+    </div>
+  </section>
+
+  <!-- 6 导出 -->
+  <section class="card">
+    <h2><span class="no">6</span>把这次新导入的再复制一份到别处</h2>
+    <p class="desc">按原来的子文件夹结构放好，并保留原始拍摄时间，不改文件时间。</p>
+    <div class="row">
+      <label>哪一批</label>
+      <select id="batchSel"></select>
+    </div>
+    <div class="row">
+      <label>复制到</label>
+      <input id="exportDir" placeholder="例如 C:\Users\你\Desktop\手机备份-导出">
+      <button id="btnExport" class="primary">导出</button>
+    </div>
+    <div class="progress hidden" id="exportProgress">
+      <div class="bar"><i></i></div><span class="pct"></span>
+    </div>
+    <div class="hint" id="exportHint"></div>
+  </section>
+
+  <section class="card logCard">
+    <h2>运行日志</h2>
+    <pre id="log"></pre>
+  </section>
+
+</main>
+
+<script src="/ui/app.js"></script>
+</body>
+</html>
