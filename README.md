@@ -6,14 +6,16 @@
 
 ## 〇、先看：两个版本有什么区别
 
-| 你手上的文件 | 需要装 Node.js 吗 | 说明 |
-|---|---|---|
-| **手机备份助手-完整版-免装Node.exe**（33 MB） | ❌ **不需要** | Node.js 已打包在里面，复制到任何 Windows 电脑双击就能用 |
-| **手机备份助手-轻量版-需先装Node.exe**（240 KB） | ✅ **必须先装** | 体积小；电脑上要先装 [Node.js](https://nodejs.org)（下 LTS，一路下一步）；没装的话双击会弹中文提示告诉你去哪下载 |
-| **源码包 / GitHub 仓库** | ✅ 需要 | 给会折腾或想改代码的人；解压后双击 `创建桌面快捷方式.cmd` |
+**下载页：<https://github.com/Misaka-311/phone-backup-helper/releases/latest>**
 
-> 发给别人：**只发"完整版"那一个文件**最省事，对方什么都不用装。
-> 分辨方法：文件名带「免装Node」= 完整版；带「需先装Node」= 轻量版。
+| 下载页里的附件 | 对应本地文件名 | 需要装 Node.js 吗 | 说明 |
+|---|---|---|---|
+| **phone-backup-helper-v1.0-FULL-no-node-required.exe** | 手机备份助手-完整版-免装Node.exe（33 MB） | ❌ **不需要** | Node.js 已打包在里面，复制到任何 Windows 电脑双击就能用 |
+| **phone-backup-helper-v1.0-LITE-needs-nodejs.exe** | 手机备份助手-轻量版-需先装Node.exe（240 KB） | ✅ **必须先装** | 电脑上要先装 [Node.js](https://nodejs.org)（下 LTS，一路下一步）；没装的话双击会弹中文提示告诉你去哪下载 |
+| 直接克隆仓库 / 源码包 | —— | ✅ 需要 | 给会折腾或想改代码的人；解压后双击 `创建桌面快捷方式.cmd` |
+
+> 发给别人：**只发 FULL 那一个文件**最省事，对方什么都不用装。
+> 记法：**FULL = 不用装**，**LITE = 要先装**（Light 轻量，所以省掉了 Node.js）。
 
 ---
 
