@@ -297,3 +297,28 @@ button.mini { height: 26px; padding: 0 10px; font-size: 12px; border-radius: 7px
 }
 .chip.cat:hover { border-color: var(--accent); color: var(--accent); }
 .chip.cat.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* 实况照片标记 */
+.liveTag {
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 6px;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.liveTag.liveOk {
+  color: #0b6b3a;
+  background: #e6f7ec;
+  border-color: #b9e6c9;
+}
+.liveTag.liveBad {
+  color: #8a4b00;
+  background: #fff4e5;
+  border-color: #ffd8a8;
+}
+#liveCats .chip.live.active {
+  background: var(--accent, #2563eb);
+  color: #fff;
+  border-color: transparent;
+}

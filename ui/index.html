@@ -107,6 +107,16 @@
       <span class="hint" id="extHint">可以多选；选「全部文件」表示不按扩展名筛</span>
     </div>
 
+    <div class="row">
+      <label>实况照片</label>
+      <div class="extCats" id="liveCats">
+        <button class="chip live active" data-live="all">全部</button>
+        <button class="chip live" data-live="live">只看实况</button>
+        <button class="chip live" data-live="declared">只看「视频已丢」</button>
+      </div>
+      <span class="hint" id="liveHint">实况照片 = 照片里还带着动态视频；「视频已丢」是备份时视频被剥掉了，播不出动态</span>
+    </div>
+
     <div id="compareBox" class="hidden">
       <table class="cmp">
         <thead><tr><th>来源文件夹</th><th>对应到</th><th class="num">来源</th><th class="num">目标已有</th><th class="num">新增</th><th class="num">新增体积</th></tr></thead>

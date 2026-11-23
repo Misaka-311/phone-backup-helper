@@ -376,6 +376,7 @@ async function apiScan(body) {
       stagingDir: cfg.local.stagingDir,
       targets,
       includeExt,
+      detectLive: body.detectLive !== false,
       minSizeBytes: Number.isFinite(body.minSizeBytes)
         ? Number(body.minSizeBytes)
         : extMode === 'media'
@@ -398,6 +399,7 @@ async function apiScan(body) {
       confidence: i.confidence,
       needDisk: i.needDisk,
       needCloud: i.needCloud,
+      live: i.live || null,
     }));
 
     session.scan = {
@@ -430,6 +432,7 @@ async function apiScan(body) {
         skipped: res.summary.skipped,
         toDisk: res.summary.toDisk,
         toCloud: res.summary.toCloud,
+        live: res.live || null,
       },
       skips: [...res.summary.skipByCode.entries()],
       sourceErrors: res.sourceErrors || [],
@@ -476,6 +479,7 @@ async function apiImport(body) {
       copied: res.stats.copied,
       uploaded: res.stats.uploaded,
       failures: res.stats.failures,
+      live: res.live || null,
       root: cfg.local.root,
     };
   });

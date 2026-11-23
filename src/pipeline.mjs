@@ -7,6 +7,7 @@ import { collectItems, resolveUnknownDates, executePlan } from './sync.mjs';
 import { makeFilter } from './filter.mjs';
 import { buildPlan, summarize } from './plan.mjs';
 import { recordKey } from './state.mjs';
+import { annotateLivePhotos, liveSummary, classifyImportedOnDisk } from './photos/annotate.mjs';
 
 /** 手机上值得备份的父目录（逐个展开成子文件夹） */
 export const PHONE_PARENTS = ['/sdcard/DCIM', '/sdcard/Pictures', '/sdcard/Movies', '/sdcard/Download'];
@@ -363,6 +364,7 @@ export async function scanAll({
   extraFilter = {},
   includeExt,
   minSizeBytes,
+  detectLive = true,
 }) {
   const sources = mapping
     .filter((m) => m && m.remote && m.enabled !== false)
@@ -383,6 +385,16 @@ export async function scanAll({
   const sourceErrors = (sourceStatus || [])
     .filter((s) => s.error)
     .map((s) => ({ remote: s.remote, error: s.error }));
+
+  // 实况照片（Live Photo）识别：给每个照片打上标记，界面上能单独挑出来
+  let liveInfo = null;
+  if (detectLive !== false) {
+    try {
+      liveInfo = await annotateLivePhotos({ items, source, log });
+    } catch (err) {
+      log.warn(`实况识别跳过：${err.message}`);
+    }
+  }
 
   // 先把"目标里已经有同名文件"的标出来——同名的一律跳过，不再算新增
   const dupBySource = new Map();
@@ -447,7 +459,7 @@ export async function scanAll({
     });
   }
 
-  return { cfg: cfg2, source, items, plan, summary, filterDesc: filter.describe(), sourceErrors, folderStats };
+  return { cfg: cfg2, source, items, plan, summary, filterDesc: filter.describe(), sourceErrors, folderStats, liveInfo, live: liveSummary(items) };
 }
 
 /** 只导入用户勾选的那些文件 */
@@ -471,6 +483,23 @@ export async function importSelected({
   const plan = { copy: selected, skip: [], conflicts: [], root: cfg.local.root };
   const stats = await executePlan({ plan, source, cfg, state, log, targets, onProgress });
 
+  // 落盘之后补判实况（MTP 通道只能这样判）：结果记进状态库，下次对比直接知道
+  let liveAfterImport = null;
+  try {
+    for (const item of selected) {
+      const rec = state.getRecord(item.key);
+      if (rec && rec.localPath) item.localPath = rec.localPath;
+    }
+    liveAfterImport = await classifyImportedOnDisk(selected);
+    for (const item of selected) {
+      if (!item.live || item.live.kind === 'unknown') continue;
+      const rec = state.getRecord(item.key);
+      if (rec) state.setRecord(item.key, { ...rec, live: item.live.kind, liveMarker: item.live.marker || null });
+    }
+  } catch (err) {
+    log.warn(`导入后实况识别跳过：${err.message}`);
+  }
+
   const batchId = `b${Date.now().toString(36)}`;
   const at = new Date().toISOString();
   const doneKeys = [];
@@ -493,7 +522,7 @@ export async function importSelected({
   state.addBatch(batch);
   await state.save();
 
-  return { stats, batchId, count: doneKeys.length, batch };
+  return { stats, batchId, count: doneKeys.length, batch, live: liveAfterImport };
 }
 
 /**

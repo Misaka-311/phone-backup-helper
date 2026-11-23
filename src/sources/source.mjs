@@ -130,6 +130,26 @@ export function createDirSource({ root, prefix = '/sdcard/' } = {}) {
       const md5 = await md5OfFile(destPath);
       return { md5, size: st.size };
     },
+    /** 这个来源的文件在本地磁盘上对应哪个路径（用来直接读字节，比如判实况照片） */
+    localPathOf(remotePath) {
+      return toLocal(remotePath);
+    },
+    /** 只读文件里的一小段，不整文件读 */
+    async readRange(remotePath, offset, length) {
+      const abs = toLocal(remotePath);
+      const fh = await fsp.open(abs, 'r');
+      try {
+        const st = await fh.stat();
+        const start = Math.max(0, Math.min(Number(offset) || 0, st.size));
+        const len = Math.max(0, Math.min(Number(length) || 0, st.size - start));
+        if (!len) return Buffer.alloc(0);
+        const buf = Buffer.alloc(len);
+        const n = await fh.read(buf, 0, len, start);
+        return buf.slice(0, n);
+      } finally {
+        await fh.close().catch(() => {});
+      }
+    },
   };
 }
 
@@ -199,8 +219,7 @@ class AdbRunner {
   }
 
   /** 二进制安全地把设备文件流式写到 destPath，同时算 MD5 */
-  streamOut(remotePath, destPath) {
-    const exe = this.resolved || this.adbPath || 'adb';
+  streamOut(remotePath, destPath) {    const exe = this.resolved || this.adbPath || 'adb';
     return new Promise((resolve, reject) => {
       const child = spawn(exe, ['exec-out', `cat ${quoteShellArg(remotePath)}`], { windowsHide: true });
       const ws = fs.createWriteStream(destPath);
@@ -251,6 +270,48 @@ class AdbRunner {
         settle();
       });
       child.stdout.pipe(ws);
+    });
+  }
+
+  /**
+   * 只读手机上某个文件的一小段（二进制安全），用来判实况照片这类"只看头尾"的活。
+   * 用 dd 精确跳位，不会把整个文件拉过来。
+   */
+  readRange(remotePath, offset, length) {
+    const exe = this.resolved || this.adbPath || 'adb';
+    const skip = Math.max(0, Math.floor(Number(offset) || 0));
+    const count = Math.max(0, Math.floor(Number(length) || 0));
+    if (!count) return Promise.resolve(Buffer.alloc(0));
+    const cmd = `dd if=${quoteShellArg(remotePath)} bs=1 skip=${skip} count=${count} 2>/dev/null`;
+    return new Promise((resolve, reject) => {
+      const child = spawn(exe, ['exec-out', cmd], { windowsHide: true });
+      const chunks = [];
+      let stderr = '';
+      const timer = setTimeout(() => {
+        try {
+          child.kill();
+        } catch {
+          /* ignore */
+        }
+        reject(new SourceError(`读取文件片段超时：${remotePath}`));
+      }, 30000);
+      child.stdout.on('data', (d) => chunks.push(d));
+      child.stderr.on('data', (d) => {
+        if (stderr.length < 2000) stderr += String(d);
+      });
+      child.on('error', (err) => {
+        clearTimeout(timer);
+        reject(new SourceError(`读取文件片段失败：${err.message}`));
+      });
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        const buf = Buffer.concat(chunks);
+        if (code !== 0 && !buf.length) {
+          reject(new SourceError(`读取文件片段失败(${code})：${stderr.trim() || remotePath}`));
+          return;
+        }
+        resolve(buf);
+      });
     });
   }
 }
@@ -327,6 +388,11 @@ export function createAdbSource(cfg = {}) {
       await runner.resolve();
       await fsp.mkdir(path.dirname(destPath), { recursive: true });
       return runner.streamOut(remotePath, destPath);
+    },
+    /** 手机上按范围读一段字节（判实况照片用；不会整文件传） */
+    async readRange(remotePath, offset, length) {
+      await runner.resolve();
+      return runner.readRange(remotePath, offset, length);
     },
     // 需要区分文件/目录时用这个（ls -l 的首字母是 d/l）
     async listEntries(remoteDir) {

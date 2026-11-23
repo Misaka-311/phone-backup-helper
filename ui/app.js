@@ -22,6 +22,7 @@ const S = {
   batches: [],
   importing: false,
   extCats: new Set(['photo', 'video']),
+  liveFilter: 'all', // all | live | declared
 };
 
 /* ------------------------------ 小工具 ------------------------------ */
@@ -697,15 +698,21 @@ async function scanNew() {
       exts,
       minSizeBytes: onlyMedia ? 1024 : 0,
       targets,
+      detectLive: true,
     });
     const result = await pollJob(jobId, (job) => {
       $('#scanHint').textContent = `${job.message} ${job.progress?.total ? `(${job.progress.done}/${job.progress.total})` : ''}`;
     });
     S.scan = result;
     S.selected = new Set(result.files.map((f) => f.key));
+    autoPickPairedVideos(result);
     renderCompare(result);
     renderGroups(result);
-    log(`对比完成：新增 ${result.totals.count} 个（${fmtBytes(result.totals.bytes)}）`, 'ok');
+    const lv = result.totals?.live;
+    const liveMsg = lv && lv.live + lv.paired + lv.declaredMissing > 0
+      ? `，其中实况照片 ${lv.live + lv.paired} 张（视频已丢 ${lv.declaredMissing} 张）`
+      : '';
+    log(`对比完成：新增 ${result.totals.count} 个（${fmtBytes(result.totals.bytes)}）${liveMsg}`, 'ok');
   } catch (e) {
     $('#scanHint').textContent = '对比失败';
     log(e.message, 'bad');
@@ -713,6 +720,68 @@ async function scanNew() {
     $('#btnScanNew').disabled = false;
   }
 }
+
+/* --------------------- 实况照片（Live Photo）--------------------- */
+
+const LIVE_TAG = {
+  live: { text: '🎬 实况', cls: 'liveOk', title: '照片里带着动态视频，能播放' },
+  paired: { text: '🔗 实况', cls: 'liveOk', title: '动态部分是另一个同名视频文件，两个一起备份才有动态' },
+  'declared-missing': { text: '⚠ 实况(视频已丢)', cls: 'liveBad', title: '文件里原本有动态视频，已经被剥掉了，播不出动态' },
+};
+
+/** 有旁挂视频的实况照片：自动把同名视频也勾上，否则备份过去没动态 */
+function autoPickPairedVideos(result) {
+  const files = result.files || [];
+  const byFolderName = new Map();
+  for (const f of files) byFolderName.set(`${f.folder}|${f.name}`.toLowerCase(), f);
+  let added = 0;
+  for (const f of files) {
+    if (f.live?.kind !== 'paired' || !f.live.pairedName) continue;
+    const mate = byFolderName.get(`${f.folder}|${f.live.pairedName}`.toLowerCase());
+    if (mate && !S.selected.has(mate.key)) {
+      S.selected.add(mate.key);
+      added += 1;
+    }
+  }
+  if (added) log(`有 ${added} 个「同名视频」被自动一起勾上（实况照片的动态部分）`, 'ok');
+}
+
+function liveChipOf(f) {
+  const t = LIVE_TAG[f.live?.kind];
+  if (!t) return null;
+  const el = document.createElement('span');
+  el.className = `liveTag ${t.cls}`;
+  el.textContent = t.text;
+  el.title = t.title;
+  return el;
+}
+
+function applyLiveFilter(files) {
+  if (S.liveFilter === 'live') return files.filter((f) => f.live?.kind === 'live' || f.live?.kind === 'paired');
+  if (S.liveFilter === 'declared') return files.filter((f) => f.live?.kind === 'declared-missing');
+  return files;
+}
+
+function renderLiveCats() {
+  document.querySelectorAll('#liveCats .live').forEach((b) => {
+    b.classList.toggle('active', b.dataset.live === S.liveFilter);
+  });
+  const lv = S.scan?.totals?.live;
+  if (!lv || (!lv.live && !lv.paired && !lv.declaredMissing && !lv.checked)) {
+    $('#liveHint').textContent = '这条通道没读文件头，实况标记要等导入落盘后再补';
+    return;
+  }
+  $('#liveHint').textContent =
+    `实况 ${lv.live + lv.paired} 张（视频已丢 ${lv.declaredMissing} 张，普通照片 ${lv.none} 张，未识别 ${lv.unknown} 张）`;
+}
+
+document.querySelectorAll('#liveCats .live').forEach((btn) => {
+  btn.onclick = () => {
+    S.liveFilter = btn.dataset.live || 'all';
+    renderLiveCats();
+    if (S.scan) renderGroups(S.scan);
+  };
+});
 
 function renderCompare(result) {
   const stats = result.folderStats || [];
@@ -738,6 +807,7 @@ function renderCompare(result) {
     <div>体积<b>${fmtBytes(result.totals.bytes)}</b></div>
     <div>跳过<b>${result.totals.skipped}</b>个</div>
     <div>涉及<b>${stats.length}</b>个文件夹</div>`;
+  renderLiveCats();
 }
 
 function renderGroups(result) {
@@ -753,14 +823,18 @@ function renderGroups(result) {
     wrap.appendChild(warn);
   }
 
-  if (!result.files.length) {
-    wrap.insertAdjacentHTML('beforeend', '<div class="hint">没有新增文件。</div>');
+  const visible = applyLiveFilter(result.files);
+  if (!visible.length) {
+    wrap.insertAdjacentHTML(
+      'beforeend',
+      `<div class="hint">${result.files.length ? '当前筛选下没有文件（换一下上面的「实况照片」筛选）' : '没有新增文件。'}</div>`,
+    );
     updateSelCount();
     return;
   }
 
   const byFolder = new Map();
-  for (const f of result.files) {
+  for (const f of visible) {
     if (!byFolder.has(f.folder)) byFolder.set(f.folder, []);
     byFolder.get(f.folder).push(f);
   }
@@ -848,7 +922,9 @@ function renderGroups(result) {
       };
 
       actions.append(eye, locate);
-      row.append(c, name, meta, actions);
+      const tag = liveChipOf(f);
+      if (tag) row.append(c, name, meta, tag, actions);
+      else row.append(c, name, meta, actions);
       body.appendChild(row);
       rows.push({ c, key: f.key });
     }
