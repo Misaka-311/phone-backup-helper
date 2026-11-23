@@ -191,14 +191,37 @@ export async function listSourceTree({ source, kind, root, maxNames = 300 }) {
 }
 
 async function listPhoneTree({ source, maxNames }) {
+  // 能批量列就先批量列：MTP 每起一次 PowerShell 要 1~2 秒，逐个列几十个文件夹会慢到没法用
+  const listing = new Map();
+  if (typeof source.listMany === 'function') {
+    try {
+      const parents = PHONE_PARENTS.filter(Boolean);
+      const level1 = await source.listMany(parents);
+      for (const [k, v] of level1) listing.set(k, v);
+      const subdirs = [];
+      for (const p of parents) {
+        for (const e of listing.get(p) || []) if (e.isDir) subdirs.push(`${p}/${e.name}`);
+      }
+      if (subdirs.length) {
+        const level2 = await source.listMany(subdirs);
+        for (const [k, v] of level2) listing.set(k, v);
+      }
+    } catch {
+      listing.clear();
+    }
+  }
+  const entriesOf = async (p) => {
+    if (listing.has(p)) return listing.get(p);
+    try {
+      return source.listEntries ? await source.listEntries(p) : await source.list(p);
+    } catch {
+      return [];
+    }
+  };
+
   const groups = [];
   for (const parent of PHONE_PARENTS) {
-    let entries = [];
-    try {
-      entries = source.listEntries ? await source.listEntries(parent) : await source.list(parent);
-    } catch {
-      continue;
-    }
+    const entries = await entriesOf(parent);
     const children = [];
 
     const loose = entries.filter((e) => !e.isDir);
@@ -217,12 +240,7 @@ async function listPhoneTree({ source, maxNames }) {
 
     for (const e of entries.filter((x) => x.isDir)) {
       const remote = `${parent}/${e.name}`;
-      let files = [];
-      try {
-        files = source.listEntries ? await source.listEntries(remote) : await source.list(remote);
-      } catch {
-        files = [];
-      }
+      const files = await entriesOf(remote);
       const only = files.filter((f) => !f.isDir);
       children.push({
         path: remote,

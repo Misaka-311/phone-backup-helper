@@ -159,13 +159,20 @@ function updateBadge(source) {
   if (source?.ok) {
     badge.className = 'phone ok';
     badge.textContent = `✓ ${source.label}`;
+    if (source.note) badge.title = source.note;
     if (retryTimer) {
       clearInterval(retryTimer);
       retryTimer = null;
     }
+    if (source.note && !S.mtpNoted) {
+      S.mtpNoted = true;
+      log(source.note, 'warn');
+    }
   } else {
     badge.className = 'phone bad';
     badge.textContent = `✗ ${source?.error || '来源不可用'}`;
+    badge.title = source?.hint || '';
+    S.mtpNoted = false;
     if (S.sourceKind === 'phone') scheduleRetry();
   }
 }

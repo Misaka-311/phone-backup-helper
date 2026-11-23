@@ -32,7 +32,7 @@ import { parseArgs, isFlagOn } from './util/args.mjs';
 import { createLogger } from './util/log.mjs';
 import { PROJECT_ROOT, isInside } from './util/paths.mjs';
 import { loadConfig, saveConfigLocal, resolveClientSecret } from './config.mjs';
-import { buildSource, walkRemote, SourceError } from './sources/source.mjs';
+import { buildSource, openPhoneSource, walkRemote, SourceError } from './sources/source.mjs';
 import { parseFromName, resolvePhotoTime, exifableExtension } from './time/photoTime.mjs';
 import { makeFilter, parseDateBoundary, rangeFromYears } from './filter.mjs';
 import { buildPlan, summarize, SKIP_LABELS } from './plan.mjs';
@@ -480,6 +480,34 @@ export async function executePlan({ plan, source, cfg, state, log, targets, onPr
     return { path: p, md5: got.md5, ephemeral: true };
   };
 
+  // MTP 通道：一条命令复制一批文件（每条都重启一次 PowerShell 就太慢了）
+  if (typeof source.copyMany === 'function' && plan.copy.length) {
+    const pending = plan.copy.filter((i) => !(i.prestaged && fs.existsSync(i.prestaged.path)));
+    if (pending.length) {
+      const batchDir = path.join(cfg.local.stagingDir, `mtp-${Date.now()}`);
+      try {
+        log.step(`预取 ${pending.length} 个文件（MTP 批量复制）`);
+        if (typeof onProgress === 'function') onProgress({ phase: 'stage', done: 0, total: pending.length });
+        const results = await source.copyMany(
+          pending.map((i) => ({ remote: i.remote, name: i.name, size: i.size })),
+          batchDir,
+        );
+        let staged = 0;
+        results.forEach((r, idx) => {
+          if (r && r.ok && r.path) {
+            pending[idx].prestaged = { path: r.path, md5: r.md5, size: r.size };
+            staged += 1;
+          } else {
+            log.warn(`预取失败，改成逐个复制：${pending[idx].name}（${(r && r.error) || '未知原因'}）`);
+          }
+        });
+        log.ok(`预取完成 ${staged}/${pending.length}`);
+      } catch (err) {
+        log.warn(`批量预取失败，改为逐个复制：${err.message}`);
+      }
+    }
+  }
+
   for (const item of plan.copy) {
     seq += 1;
     let staging = null;
@@ -659,10 +687,15 @@ export async function runSync(args, { command = DEFAULT_CMD } = {}) {
   const stale = await cleanupStaging(cfg.local.stagingDir);
   if (stale) log.debug(`清理了 ${stale} 个上次残留的暂存文件`);
 
-  const source = buildSource(cfg);
+  let source;
   let phoneInfo;
+  let transport = 'adb';
   try {
-    phoneInfo = await source.describe();
+    // adb 优先；手机没开 USB 调试时自动改用 MTP（Windows 便携设备）
+    const opened = await openPhoneSource(cfg);
+    source = opened.source;
+    phoneInfo = opened.info;
+    transport = opened.transport;
   } catch (err) {
     if (err instanceof SourceError) {
       log.raw('');
@@ -675,6 +708,9 @@ export async function runSync(args, { command = DEFAULT_CMD } = {}) {
     throw err;
   }
   log.ok(`${phoneInfo.label}`);
+  if (transport === 'mtp') {
+    log.warn('手机没开「USB 调试」，这次走 MTP 文件传输（能用，但比 adb 慢；想更快就在开发者选项里打开 USB 调试）');
+  }
 
   // 1. 列出手机文件
   log.step('第 1 步 / 5　扫描手机目录');

@@ -1,6 +1,6 @@
 {
   "phone": {
-    "transport": "adb",
+    "transport": "auto",
     "sources": [
       { "id": "camera", "remote": "/sdcard/DCIM/Camera", "targetSubdir": "Camera", "enabled": true },
       { "id": "screenshots", "remote": "/sdcard/Pictures/Screenshots", "targetSubdir": "Screenshots", "enabled": true },

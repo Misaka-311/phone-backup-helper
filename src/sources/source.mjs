@@ -1,5 +1,6 @@
 // 源（手机）抽象层。
-//   adb  —— 真手机，通过 USB + adb 读取（主力）
+//   adb  —— 真手机，通过 USB + adb 读取（最快，保留手机端修改时间）
+//   mtp  —— 真手机，通过 Windows 便携设备读（没开 USB 调试时的兜底，慢一些但能用）
 //   dir  —— 把本地某个目录当作"手机"（演练、没插手机时自测）
 //
 // 统一接口：
@@ -12,6 +13,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { createMtpSource } from './mtp.mjs';
 
 const ADB_CANDIDATES = [
   'adb',
@@ -346,15 +348,75 @@ export function createAdbSource(cfg = {}) {
   };
 }
 
+function makeMtp(cfg) {
+  const phone = cfg.phone || {};
+  return createMtpSource({
+    device: phone.mtpDevice || null,
+    storage: phone.mtpStorage || null,
+    bridge: phone.mtpBridge || null,
+  });
+}
+
 export function buildSource(cfg) {
   const phone = cfg.phone || {};
-  if (phone.transport === 'dir') {
+  const t = String(phone.transport || 'auto').toLowerCase();
+  if (t === 'dir') {
     const root = phone.dir && phone.dir.root;
     if (!root) throw new SourceError('phone.transport=dir 时必须在配置里给 phone.dir.root', { code: 'CONFIG' });
     return createDirSource({ root, prefix: (phone.dir && phone.dir.prefix) || '/sdcard/' });
   }
+  if (t === 'mtp') return makeMtp(cfg);
   return createAdbSource({ adbPath: phone.adbPath, serial: phone.serial });
 }
+
+/**
+ * 打开手机来源，自动决定走哪条通道。
+ *   auto（默认）: 先 adb，看不到设备就自动改用 MTP —— 这样手机没开"USB 调试"也能用。
+ *   adb / mtp / dir: 强制指定。
+ * 返回 { source, transport, info, adbError? }；两条通道都不行时抛 SourceError（带两边的原因）。
+ */
+export async function openPhoneSource(cfg = {}, deps = {}) {
+  const phone = cfg.phone || {};
+  const t = String(phone.transport || 'auto').toLowerCase();
+  const factoryAdb = deps.adbFactory || (() => createAdbSource({ adbPath: phone.adbPath, serial: phone.serial }));
+  const factoryMtp = deps.mtpFactory || (() => makeMtp(cfg));
+
+  if (t === 'dir') {
+    const source = buildSource(cfg);
+    const info = await source.describe();
+    return { source, transport: 'dir', info };
+  }
+  if (t === 'mtp') {
+    const source = factoryMtp();
+    const info = await source.describe();
+    return { source, transport: 'mtp', info };
+  }
+
+  const adb = factoryAdb();
+  let adbError = null;
+  try {
+    const info = await adb.describe();
+    return { source: adb, transport: 'adb', info };
+  } catch (err) {
+    adbError = err;
+    if (t === 'adb') throw err;
+  }
+
+  const mtp = factoryMtp();
+  try {
+    const info = await mtp.describe();
+    return { source: mtp, transport: 'mtp', info, adbError };
+  } catch (mtpError) {
+    const hints = [adbError && adbError.hint, `MTP 通道也没成功：${mtpError.message}${mtpError.hint ? `（${mtpError.hint}）` : ''}`]
+      .filter(Boolean)
+      .join('；');
+    throw new SourceError(adbError ? adbError.message : mtpError.message, {
+      code: (adbError && adbError.code) || 'NO_DEVICE',
+      hint: hints || null,
+    });
+  }
+}
+
 
 /** 递归列出某个远程目录下的文件（限制深度，跳过缩略图等目录） */
 export async function walkRemote(source, remoteDir, { maxDepth = 3, excludeDirs = [] } = {}) {

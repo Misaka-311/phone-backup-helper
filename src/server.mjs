@@ -10,7 +10,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { loadConfig, saveConfigLocal } from './config.mjs';
-import { buildSource } from './sources/source.mjs';
+import { buildSource, openPhoneSource } from './sources/source.mjs';
 import { StateStore } from './state.mjs';
 import { listVolumes, listFolders, ensureDir } from './drives.mjs';
 import { listPhoneDirs, listFolderSource, listSourceTree, scanAll, importSelected, exportBatch } from './pipeline.mjs';
@@ -108,8 +108,23 @@ function makeFolderSource(root) {
 async function getSource({ reconnect = false } = {}) {
   const cfg = await ensureSession();
   const spec = session.sourceSpec || { kind: 'phone' };
+  if (spec.kind === 'folder') {
+    if (!session.source || reconnect || session.sourceFor !== sourceSpecKey(spec)) {
+      session.source = makeFolderSource(spec.root);
+      session.sourceFor = sourceSpecKey(spec);
+      session.transport = 'folder';
+    }
+    return session.source;
+  }
   if (!session.source || reconnect || session.sourceFor !== sourceSpecKey(spec)) {
-    session.source = spec.kind === 'folder' ? makeFolderSource(spec.root) : buildSource(cfg);
+    // 先 adb，失败自动退到 MTP（手机没开 USB 调试时也能用）
+    const opened = await openPhoneSource(cfg);
+    session.source = opened.source;
+    session.transport = opened.transport;
+    session.transportInfo = opened.info;
+    session.adbError = opened.adbError
+      ? { message: opened.adbError.message || null, hint: opened.adbError.hint || null }
+      : null;
     session.sourceFor = sourceSpecKey(spec);
   }
   return session.source;
@@ -123,9 +138,28 @@ async function probeSource() {
   try {
     const src = await getSource({ reconnect: true });
     const info = await src.describe();
-    session.phone = { ok: true, ...info, spec: session.sourceSpec };
+    const transport = session.transport || 'adb';
+    session.phone = {
+      ok: true,
+      ...info,
+      transport,
+      spec: session.sourceSpec,
+      note:
+        transport === 'mtp'
+          ? '手机没开「USB 调试」，已自动改用 MTP 文件传输模式（能备份，只是速度慢一些）'
+          : null,
+      adbError: session.adbError || null,
+    };
   } catch (err) {
-    session.phone = { ok: false, error: err.message, hint: err.hint || null, spec: session.sourceSpec };
+    session.source = null;
+    session.sourceFor = null;
+    session.phone = {
+      ok: false,
+      error: err.message,
+      hint: err.hint || null,
+      transport: null,
+      spec: session.sourceSpec,
+    };
   }
   return session.phone;
 }
@@ -237,8 +271,16 @@ async function apiSourceChoose(body) {
 async function apiSourceTree() {
   const spec = session.sourceSpec || { kind: 'phone' };
   const src = await getSource();
+  // MTP 列目录要几十秒，界面反复渲染时直接用缓存（默认 3 分钟）
+  const key = `${sourceSpecKey(spec)}|${session.transport || 'adb'}`;
+  const now = Date.now();
+  const ttl = session.transport === 'mtp' ? 180000 : 15000;
+  if (session.treeCache && session.treeCache.key === key && now - session.treeCache.at < ttl) {
+    return { ok: true, ...session.treeCache.data, cached: true };
+  }
   const tree = await listSourceTree({ source: src, kind: spec.kind, root: spec.root });
-  return { ok: true, ...tree };
+  session.treeCache = { key, at: now, data: tree };
+  return { ok: true, ...tree, cached: false };
 }
 
 /** 列出当前来源下可对比的文件夹（扁平版，保留给旧界面/脚本） */

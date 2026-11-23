@@ -7,8 +7,10 @@ import { PROJECT_ROOT } from './util/paths.mjs';
 
 export const DEFAULT_CONFIG = {
   phone: {
-    transport: 'adb', // adb | dir
+    transport: 'auto', // auto（先 adb，失败自动用 MTP）| adb | mtp | dir
     adbPath: null, // null = 用 PATH 里的 adb
+    mtpDevice: null, // 多个便携设备时指定名字，null = 自动挑第一个
+    mtpStorage: null, // 一般用不到，默认取第一个存储根（内部共享存储空间）
     dir: { root: null, prefix: '/sdcard/' }, // 用本地目录模拟手机（演练/测试用）
     sources: [
       { id: 'camera', remote: '/sdcard/DCIM/Camera', targetSubdir: 'Camera', enabled: true },
